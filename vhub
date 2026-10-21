@@ -1,0 +1,7 @@
+vhub_details = {
+    vhub_name                = "dpx-inf-con-gwc-vhub-001"
+    vhub_resource_group_name = "dpx-vhub-inf-con-gwc-rg-001"
+  }
+connectivity" = {
+      subscription_id = "b116cab1-74d6-4848-9bb2-32f11adf2f8c" #Provide connectivity subscription ID of the asset
+    }
