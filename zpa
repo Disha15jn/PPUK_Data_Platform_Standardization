@@ -1,0 +1,310 @@
+linux_vms = {
+  zscaler_server_01 = {
+    resource_group_key              = "zsc_rg"
+    vm_name                         = "infzsprdgwcvm01"
+    vm_size                         = "Standard_D4s_v3"
+    admin_username                  = "azadmin"
+    
+    # Password and Auth Configuration
+    generate_ssh_key                = true  
+    generate_admin_password         = false
+    admin_password                  = null
+    disable_password_authentication = false   
+    key_vault_key                   = "zscaler_secrets_kv"
+
+    # Networking Configuration
+    subnet_key                      = "zscaler_subnet"
+    existing_vnet_key               = null
+    existing_subnet_key             = null       
+
+    network_interfaces = {  
+      primary_nic = {  
+        name                           = "infzsprdgwcvm01-nic-01"  
+        accelerated_networking_enabled = false  
+        ip_forwarding_enabled          = false  
+        ip_configurations = {  
+          internal = {  
+            name                          = "infzsprdgwcvm01-ipconfig-01"  
+            private_ip_address_allocation = "Static"  
+            private_ip_address            = "10.128.98.68"  
+            public_ip_enabled             = false # Required for Bastion (no public access)
+          }  
+        }  
+      }  
+    }
+
+    # High Availability
+    availability_zone = "1" 
+
+    # Image Configuration  
+    source_image_id = null
+    source_image_reference = {  
+      publisher = "zscaler"  
+      offer     = "zscaler-private-access"  
+      sku       = "zpa-con-azure"  
+      version   = "latest"  
+    }
+
+    plan = {  
+      name      = "zpa-con-azure"  
+      publisher = "zscaler"  
+      product   = "zscaler-private-access"  
+    }
+
+    # Disk Configuration  
+    os_disk = {  
+      caching              = "ReadWrite"  
+      storage_account_type = "Premium_LRS"  
+      disk_size_gb         = 100  
+    }
+    
+    data_disks = {}
+
+    # Identity  
+    managed_identities = {  
+      system_assigned             = true
+      user_assigned_identity_keys = []
+    }
+
+    # Extensions  
+    extensions = {  
+      enable_azure_monitor = true  
+      enable_aad_login     = true # Native Bastion AAD support
+    }
+  }
+
+  zscaler_server_02 = {
+    resource_group_key              = "zsc_rg"
+    vm_name                         = "infzsprdgwcvm02"
+    vm_size                         = "Standard_D4s_v3"
+    admin_username                  = "azadmin"
+    
+    # Password and Auth Configuration
+    generate_ssh_key                = true  
+    generate_admin_password         = false
+    admin_password                  = null
+    disable_password_authentication = false   
+    key_vault_key                   = "zscaler_secrets_kv"
+
+    # Networking Configuration
+    subnet_key                      = "zscaler_subnet"
+    existing_vnet_key               = null
+    existing_subnet_key             = null       
+
+    network_interfaces = {  
+      primary_nic = {  
+        name                           = "infzsprdgwcvm02-nic-01"  
+        accelerated_networking_enabled = false  
+        ip_forwarding_enabled          = false  
+        ip_configurations = {  
+          internal = {  
+            name                          = "infzsprdgwcvm02-ipconfig-01"  
+            private_ip_address_allocation = "Static"  
+            private_ip_address            = "10.128.98.69" # Next sequential IP 
+            public_ip_enabled             = false 
+          }  
+        }  
+      }  
+    }
+
+    # High Availability
+    availability_zone = "2" 
+
+    # Image Configuration  
+    source_image_id = null
+    source_image_reference = {  
+      publisher = "zscaler"  
+      offer     = "zscaler-private-access"  
+      sku       = "zpa-con-azure"  
+      version   = "latest"  
+    }
+
+    plan = {  
+      name      = "zpa-con-azure"  
+      publisher = "zscaler"  
+      product   = "zscaler-private-access"  
+    }
+
+    # Disk Configuration  
+    os_disk = {  
+      caching              = "ReadWrite"  
+      storage_account_type = "Premium_LRS"  
+      disk_size_gb         = 100  
+    }
+    
+    data_disks = {}
+
+    # Identity  
+    managed_identities = {  
+      system_assigned             = true
+      user_assigned_identity_keys = []
+    }
+
+    # Extensions  
+    extensions = {  
+      enable_azure_monitor = true  
+      enable_aad_login     = true 
+    }
+  }
+}
+
+
+
+
+data "azurerm_client_config" "current" {}
+
+module "keyvault" {
+  for_each = var.key_vaults
+  source   = "Azure/avm-res-keyvault-vault/azurerm"
+  version  = "0.9.1" 
+
+  name                = each.value.name
+  location            = var.common_vars.location
+  resource_group_name = module.rg[each.value.resource_group_key].name
+  tenant_id           = data.azurerm_client_config.current.tenant_id
+  
+  sku_name                  = try(each.value.sku_name, "standard")
+  enable_telemetry          = var.enable_telemetry
+  
+  # AVM recommends RBAC for modern DPX platform deployments over access policies
+  enable_rbac_authorization       = try(each.value.enable_rbac_authorization, true)
+  purge_protection_enabled        = try(each.value.purge_protection_enabled, true)
+  public_network_access_enabled   = try(each.value.public_network_access_enabled, false)
+
+  # Network ACLs (Optional: Useful if you need to restrict traffic to specific subnets)
+  network_acls = try(each.value.network_acls, null)
+
+  tags = merge(var.common_vars.tags, try(each.value.tags, {}))
+}
+
+
+
+
+variable "linux_vms" {
+  description = "Map of Linux virtual machine configurations to deploy"
+  type = map(object({
+    resource_group_key              = string
+    vm_name                         = string
+    vm_size                         = string
+    admin_username                  = string
+    
+    # Password and Auth Configuration
+    generate_ssh_key                = bool
+    generate_admin_password         = bool
+    admin_password                  = optional(string)
+    disable_password_authentication = bool
+    key_vault_key                   = optional(string)
+    ssh_public_keys                 = optional(list(string), [])
+
+    # Networking Configuration
+    subnet_key                      = optional(string)
+    existing_vnet_key               = optional(string)
+    existing_subnet_key             = optional(string)
+
+    network_interfaces = map(object({
+      name                           = optional(string)
+      accelerated_networking_enabled = optional(bool, false)
+      ip_forwarding_enabled          = optional(bool, false)
+      ip_configurations = map(object({
+        name                          = optional(string, "internal")
+        private_ip_address_allocation = optional(string, "Dynamic")
+        private_ip_address            = optional(string)
+        public_ip_enabled             = optional(bool, false)
+      }))
+    }))
+
+    # High Availability
+    availability_zone = optional(string)
+
+    # Image Configuration
+    source_image_id = optional(string)
+    source_image_reference = optional(object({
+      publisher = string
+      offer     = string
+      sku       = string
+      version   = string
+    }))
+
+    plan = optional(object({
+      name      = string
+      publisher = string
+      product   = string
+    }))
+
+    # Disk Configuration
+    os_disk = object({
+      caching              = string
+      storage_account_type = string
+      disk_size_gb         = number
+    })
+
+    data_disks = optional(map(object({
+      caching              = string
+      create_option        = string
+      disk_size_gb         = number
+      lun                  = number
+      storage_account_type = string
+    })), {})
+
+    # Identity Configuration
+    managed_identities = optional(object({
+      system_assigned             = optional(bool, true)
+      user_assigned_identity_keys = optional(list(string), [])
+    }), {})
+
+    # Extensions Configuration
+    extensions = optional(object({
+      enable_azure_monitor = optional(bool, true)
+      enable_aad_login     = optional(bool, true)
+    }), {})
+
+    tags = optional(map(string), {})
+  }))
+  default = {}
+}
+
+
+variable "key_vaults" {
+  description = "Map of Key Vault configurations"
+  type = map(object({
+    name                          = string
+    resource_group_key            = string
+    sku_name                      = optional(string, "standard")
+    enable_rbac_authorization     = optional(bool, true)
+    purge_protection_enabled      = optional(bool, true)
+    public_network_access_enabled = optional(bool, false)
+    
+    network_acls = optional(object({
+      bypass                     = optional(string, "AzureServices")
+      default_action             = optional(string, "Deny")
+      ip_rules                   = optional(list(string), [])
+      virtual_network_subnet_ids = optional(list(string), [])
+    }))
+    
+    tags = optional(map(string), {})
+  }))
+  default = {}
+}
+
+
+
+key_vaults = {
+  zscaler_secrets_kv = {
+    name                          = "kv-ppg-zpa-mgmt-01" # Ensure globally unique 24-char limit
+    resource_group_key            = "zsc_rg"
+    sku_name                      = "standard"
+    enable_rbac_authorization     = true
+    purge_protection_enabled      = true
+    public_network_access_enabled = false 
+
+    # Only needed if you are completely locking down the KV to specific subnets
+    network_acls = {
+      default_action             = "Deny"
+      bypass                     = "AzureServices"
+      virtual_network_subnet_ids = [] # Add your zscaler_subnet ID here if required
+    }
+  }
+}
+
+
+
